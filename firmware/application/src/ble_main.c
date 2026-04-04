@@ -421,9 +421,11 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context) {
             // LED indication will be changed when advertising starts.
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
             g_is_ble_connected = false;
-            // Stay awake and keep advertising until a client reconnects.
-            // Do NOT start the sleep timer here.
-            advertising_start(false);
+            // The SDK's ble_advertising module auto-restarts advertising on
+            // disconnect (ble_adv_on_disconnect_disabled defaults to false).
+            // We intentionally do NOT call sleep_timer_start here so the
+            // device stays awake and keeps advertising until a client
+            // reconnects, rather than sleeping after 4 seconds.
             break;
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST: {
