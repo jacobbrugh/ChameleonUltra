@@ -928,6 +928,11 @@ static data_frame_tx_t *cmd_processor_set_slot_enable(uint16_t cmd, uint16_t sta
 
     uint8_t slot_now = payload->slot_index;
     tag_emulation_slot_set_enable(slot_now, payload->sense_type, payload->enabled);
+    // Apply the sensing change immediately if this is the active slot,
+    // so the NFCT/LF peripheral actually stops (or starts).
+    if (slot_now == tag_emulation_get_slot()) {
+        tag_emulation_sense_switch(payload->sense_type, payload->enabled);
+    }
     if ((!payload->enabled) &&
             (!is_slot_enabled(slot_now, payload->sense_type == TAG_SENSE_HF ? TAG_SENSE_LF : TAG_SENSE_HF))) {
         // HF and LF disabled, need to change slot
