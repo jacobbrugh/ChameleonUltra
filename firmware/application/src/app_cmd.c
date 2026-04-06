@@ -1480,6 +1480,18 @@ static data_frame_tx_t *cmd_processor_get_all_slot_nicks(uint16_t cmd, uint16_t 
     return data_frame_make(cmd, STATUS_SUCCESS, response_length, response_buffer);
 }
 
+static data_frame_tx_t *cmd_processor_set_emulation_sense(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
+    if (length != 1 || data[0] > 1) {
+        return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
+    }
+    if (data[0]) {
+        tag_emulation_sense_run();
+    } else {
+        tag_emulation_sense_end();
+    }
+    return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
+}
+
 static data_frame_tx_t *cmd_processor_delete_slot_tag_nick(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
     if (length != 2) {
         return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
@@ -1897,6 +1909,7 @@ static cmd_data_map_t m_data_cmd_map[] = {
     {    DATA_CMD_GET_BLE_PAIRING_ENABLE,       NULL,                        cmd_processor_get_ble_pairing_enable,        NULL                   },
     {    DATA_CMD_SET_BLE_PAIRING_ENABLE,       NULL,                        cmd_processor_set_ble_pairing_enable,        NULL                   },
     {    DATA_CMD_GET_ALL_SLOT_NICKS,           NULL,                        cmd_processor_get_all_slot_nicks,            NULL                   },
+    {    DATA_CMD_SET_EMULATION_SENSE,          NULL,                        cmd_processor_set_emulation_sense,           NULL                   },
 
 #if defined(PROJECT_CHAMELEON_ULTRA)
 
