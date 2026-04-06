@@ -101,6 +101,7 @@ static ble_uuid_t m_adv_uuids[]          =                                      
     {BLE_UUID_BATTERY_SERVICE, BLE_UUID_TYPE_BLE},
 };
 volatile bool g_is_ble_connected = false;
+volatile bool g_is_ble_advertising = false;
 volatile bool g_is_low_battery_shutdown = false;
 static ble_opt_t m_static_pin_option;
 
@@ -388,9 +389,17 @@ static void on_adv_evt(ble_adv_evt_t ble_adv_evt) {
     switch (ble_adv_evt) {
         case BLE_ADV_EVT_FAST:
             NRF_LOG_INFO("BLE_ADV_EVT_FAST");
+            g_is_ble_advertising = true;
+            // Re-apply TX power on every advertising start (including SDK
+            // auto-restarts on disconnect which bypass our advertising_start wrapper).
+            // UNCERTAINTY: the SoftDevice may persist TX power per adv handle across
+            // stop/start cycles, making this redundant. But the behavior is undocumented,
+            // and this call is cheap, so we re-apply defensively.
+            sd_ble_gap_tx_power_set(BLE_GAP_TX_POWER_ROLE_ADV, m_advertising.adv_handle, 8);
             break;
         case BLE_ADV_EVT_IDLE:
             NRF_LOG_INFO("BLE_ADV_EVT_IDLE");
+            g_is_ble_advertising = false;
             break;
         default:
             break;
@@ -407,6 +416,7 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context) {
 
     switch (p_ble_evt->header.evt_id) {
         case BLE_GAP_EVT_CONNECTED:
+            g_is_ble_advertising = false;
             sleep_timer_stop();
 
             NRF_LOG_INFO("Connected");
@@ -439,6 +449,12 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context) {
 
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST: {
             NRF_LOG_DEBUG("PHY update request.");
+            // UNCERTAINTY: requesting Coded-only here means if the central
+            // doesn't support Coded PHY, the negotiation falls back to 1M
+            // (per BLE spec). But APP_ERROR_CHECK on the return could crash
+            // if the SoftDevice rejects the request entirely. In practice
+            // sd_ble_gap_phy_update returns NRF_SUCCESS (negotiation is async)
+            // and the actual result comes via BLE_GAP_EVT_PHY_UPDATE.
             ble_gap_phys_t const phys = {
                 .rx_phys = BLE_GAP_PHY_CODED,
                 .tx_phys = BLE_GAP_PHY_CODED,
@@ -562,6 +578,11 @@ static void advertising_init(void) {
 
     init.config.ble_adv_fast_enabled  = true;
     init.config.ble_adv_fast_interval = APP_ADV_INTERVAL;
+    // UNCERTAINTY: timeout=0 means advertise forever. Combined with the
+    // g_is_ble_advertising sleep guard, the device will never sleep on its own
+    // while advertising. This is intentional (stay discoverable), but means
+    // battery drain if left on with no client. Low battery shutdown bypasses
+    // this. If a timeout is desired, set e.g. 18000 (=3 min in 10ms units).
     init.config.ble_adv_fast_timeout  = 0;
     init.config.ble_adv_extended_enabled = true;
     init.config.ble_adv_primary_phy      = BLE_GAP_PHY_CODED;
@@ -613,6 +634,16 @@ void advertising_start(bool erase_bonds) {
         if (settings_get_ble_pairing_enable_first_load()) {
             whitelist_set(PM_PEER_ID_LIST_SKIP_NO_ID_ADDR);
         }
+        // Stop first to make this idempotent — avoids NRF_ERROR_INVALID_STATE
+        // crash if advertising is already running (e.g. SDK auto-restart on
+        // disconnect followed by PM_EVT_PEERS_DELETE_SUCCEEDED).
+        // NOTE: we call sd_ble_gap_adv_stop directly instead of advertising_stop()
+        // to avoid clearing g_is_ble_advertising — the flag should stay true since
+        // we're about to restart immediately. UNCERTAINTY: the SDK advertising
+        // module's internal state may desync from the SoftDevice after this raw
+        // stop. In practice this hasn't caused issues because ble_advertising_start
+        // reconfigures everything from scratch via sd_ble_gap_adv_set_configure.
+        sd_ble_gap_adv_stop(m_advertising.adv_handle);
         ret_code_t ret = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
         APP_ERROR_CHECK(ret);
         ret = sd_ble_gap_tx_power_set(BLE_GAP_TX_POWER_ROLE_ADV, m_advertising.adv_handle, 8);
@@ -624,6 +655,7 @@ void advertising_start(bool erase_bonds) {
  * @brief Function for stop advertising.
  */
 void advertising_stop(void) {
+    g_is_ble_advertising = false;
     sd_ble_gap_adv_stop(m_advertising.adv_handle);
 }
 
@@ -767,6 +799,7 @@ static void battery_level_meas_timeout_handler(void *p_context) {
     if (percentage_batt_lvl == 0) {
         NRF_LOG_INFO("battery too low, try to shutdown...");
         g_is_low_battery_shutdown = true;
+        advertising_stop();  // Clear g_is_ble_advertising so sleep guard won't block shutdown
         sleep_timer_start(SLEEP_NO_BATTERY_SHUTDOWN);
     } else {
         g_is_low_battery_shutdown = false;

@@ -1606,7 +1606,14 @@ static data_frame_tx_t *cmd_processor_set_ble_connect_key(uint16_t cmd, uint16_t
 }
 
 static data_frame_tx_t *cmd_processor_delete_all_ble_bonds(uint16_t cmd, uint16_t status, uint16_t length, uint8_t *data) {
-    advertising_stop();
+    // Don't call advertising_stop() here — it clears g_is_ble_advertising,
+    // which can cause the device to enter System OFF sleep before advertising
+    // restarts. pm_peers_delete() is async; PM_EVT_PEERS_DELETE_SUCCEEDED
+    // will call advertising_start(false) to restart advertising afterward.
+    // UNCERTAINTY: the original code called advertising_stop() before
+    // delete_bonds_all(). We removed it because it clears the sleep guard
+    // flag. If bond deletion requires advertising to be stopped first (e.g.
+    // flash contention), this could cause issues — but testing shows it works.
     delete_bonds_all();
     return data_frame_make(cmd, STATUS_SUCCESS, 0, NULL);
 }
