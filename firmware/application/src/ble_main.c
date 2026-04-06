@@ -415,6 +415,13 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context) {
             APP_ERROR_CHECK(err_code);
             err_code = sd_ble_gap_tx_power_set(BLE_GAP_TX_POWER_ROLE_CONN, m_conn_handle, 8);
             APP_ERROR_CHECK(err_code);
+            // Request Coded PHY for the connection (long range)
+            ble_gap_phys_t const phys = {
+                .rx_phys = BLE_GAP_PHY_CODED,
+                .tx_phys = BLE_GAP_PHY_CODED,
+            };
+            err_code = sd_ble_gap_phy_update(m_conn_handle, &phys);
+            APP_ERROR_CHECK(err_code);
             g_is_ble_connected = true;
             break;
 
@@ -433,8 +440,8 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context) {
         case BLE_GAP_EVT_PHY_UPDATE_REQUEST: {
             NRF_LOG_DEBUG("PHY update request.");
             ble_gap_phys_t const phys = {
-                .rx_phys = BLE_GAP_PHY_AUTO,
-                .tx_phys = BLE_GAP_PHY_AUTO,
+                .rx_phys = BLE_GAP_PHY_CODED,
+                .tx_phys = BLE_GAP_PHY_CODED,
             };
             err_code = sd_ble_gap_phy_update(p_ble_evt->evt.gap_evt.conn_handle, &phys);
             APP_ERROR_CHECK(err_code);
@@ -548,12 +555,17 @@ static void advertising_init(void) {
     init.advdata.include_appearance = false;
     init.advdata.flags              = BLE_GAP_ADV_FLAGS_LE_ONLY_GENERAL_DISC_MODE;
 
-    init.srdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
-    init.srdata.uuids_complete.p_uuids  = m_adv_uuids;
+    // Extended advertising is nonscannable, so put UUIDs in the main advdata
+    // instead of srdata (scan responses are not sent with Coded PHY).
+    init.advdata.uuids_complete.uuid_cnt = sizeof(m_adv_uuids) / sizeof(m_adv_uuids[0]);
+    init.advdata.uuids_complete.p_uuids  = m_adv_uuids;
 
     init.config.ble_adv_fast_enabled  = true;
     init.config.ble_adv_fast_interval = APP_ADV_INTERVAL;
     init.config.ble_adv_fast_timeout  = 0;
+    init.config.ble_adv_extended_enabled = true;
+    init.config.ble_adv_primary_phy      = BLE_GAP_PHY_CODED;
+    init.config.ble_adv_secondary_phy    = BLE_GAP_PHY_CODED;
     init.evt_handler = on_adv_evt;
 
     err_code = ble_advertising_init(&m_advertising, &init);
