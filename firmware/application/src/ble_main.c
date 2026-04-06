@@ -413,6 +413,8 @@ static void ble_evt_handler(ble_evt_t const *p_ble_evt, void *p_context) {
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             err_code = nrf_ble_qwr_conn_handle_assign(&m_qwr, m_conn_handle);
             APP_ERROR_CHECK(err_code);
+            err_code = sd_ble_gap_tx_power_set(BLE_GAP_TX_POWER_ROLE_CONN, m_conn_handle, 8);
+            APP_ERROR_CHECK(err_code);
             g_is_ble_connected = true;
             break;
 
@@ -600,6 +602,8 @@ void advertising_start(bool erase_bonds) {
             whitelist_set(PM_PEER_ID_LIST_SKIP_NO_ID_ADDR);
         }
         ret_code_t ret = ble_advertising_start(&m_advertising, BLE_ADV_MODE_FAST);
+        APP_ERROR_CHECK(ret);
+        ret = sd_ble_gap_tx_power_set(BLE_GAP_TX_POWER_ROLE_ADV, m_advertising.adv_handle, 8);
         APP_ERROR_CHECK(ret);
     }
 }
