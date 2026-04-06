@@ -20,6 +20,7 @@
 #include "lf_em4x05_data.h"
 #endif
 #include "nfc_14a.h"
+#include "lf_tag_em.h"
 
 
 #define NRF_LOG_MODULE_NAME app_cmd
@@ -1485,7 +1486,19 @@ static data_frame_tx_t *cmd_processor_set_emulation_sense(uint16_t cmd, uint16_t
         return data_frame_make(cmd, STATUS_PAR_ERR, 0, NULL);
     }
     if (data[0]) {
-        tag_emulation_sense_run();
+        // Enable sensing directly, bypassing the enabled_hf/lf config check.
+        // tag_emulation_sense_run() won't enable peripherals if enabled_hf is
+        // false in the slot config, but this command's purpose is to override
+        // that — the BLE client controls when sensing is on, not the config.
+        uint8_t slot = tag_emulation_get_slot();
+        tag_slot_specific_type_t tag_types;
+        tag_emulation_get_specific_types_by_slot(slot, &tag_types);
+        if (tag_types.tag_hf != TAG_TYPE_UNDEFINED) {
+            nfc_tag_14a_sense_switch(true);
+        }
+        if (tag_types.tag_lf != TAG_TYPE_UNDEFINED) {
+            lf_tag_125khz_sense_switch(true);
+        }
     } else {
         tag_emulation_sense_end();
     }
